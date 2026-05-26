@@ -8,46 +8,258 @@
 #include "InputActionValue.h"
 #include "SomnPlayerCharacter.generated.h"
 
+// Forward declarations — evitan includes pesados en el .h
+class USpringArmComponent;
+class UCameraComponent;
+class UInputMappingContext;
+class UInputAction;
+
+// ============================================================
+//  DELEGATES — otros sistemas se suscriben a estos eventos
+// ============================================================
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEmotionIraChanged, float, NewValue);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnParaguasStateChanged, bool, bOpen);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMascaraStateChanged, bool, bWearing);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnItemUsed, FName, ItemID);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerEnteredZone, FName, ZoneID);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnInteractionStarted, AActor*, Target, FName, InteractionType);
+
+// ============================================================
+//  UCLASS
+// ============================================================
 UCLASS()
 class SOMNIA_API ASomnPlayerCharacter : public ACharacter
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	ASomnPlayerCharacter();
+
+    ASomnPlayerCharacter();
 
 protected:
-	virtual void BeginPlay() override;
-	virtual void SetupPlayerInputComponent(
-		class UInputComponent* PlayerInputComponent) override;
 
-	// --- INPUT ACTIONS ---
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
-		meta = (AllowPrivateAccess = "true"))
-	class UInputMappingContext* DefaultMappingContext;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
-		meta = (AllowPrivateAccess = "true"))
-	class UInputAction* MoveAction;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
-		meta = (AllowPrivateAccess = "true"))
-	class UInputAction* LookAction;
-
-	// --- FUNCIONES DE MOVIMIENTO ---
-	void Move(const FInputActionValue& Value);
-	void Look(const FInputActionValue& Value);
+    virtual void BeginPlay() override;
+    virtual void SetupPlayerInputComponent(
+        class UInputComponent* PlayerInputComponent) override;
 
 public:
-	virtual void Tick(float DeltaTime) override;
 
-	// --- PARAMETROS TUNEABLES ---
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
-	float WalkSpeed = 200.0f;
+    virtual void Tick(float DeltaTime) override;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
-	float SprintSpeed = 400.0f;
+    // ============================================================
+    //  COMPONENTES
+    // ============================================================
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
-	float CrouchWalkSpeed = 120.0f;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
+        meta = (AllowPrivateAccess = "true"))
+    USpringArmComponent* SpringArm;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera",
+        meta = (AllowPrivateAccess = "true"))
+    UCameraComponent* Camera;
+
+    // ============================================================
+    //  INPUT — MAPPING CONTEXT
+    // ============================================================
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputMappingContext* DefaultMappingContext;
+
+    // ============================================================
+    //  INPUT — ACTIONS
+    // ============================================================
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Move;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Look;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Jump;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Sprint;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Crouch;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Interact;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Paraguas;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input",
+        meta = (AllowPrivateAccess = "true"))
+    UInputAction* IA_Mascara;
+
+    // ============================================================
+    //  MOVIMIENTO — PARAMETROS AJUSTABLES
+    // ============================================================
+
+    /** Velocidad base de caminar (cm/s). Default 200 */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float WalkSpeed = 200.0f;
+
+    /** Multiplicador de sprint. SprintSpeed = WalkSpeed * SprintMultiplier */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float SprintMultiplier = 1.25f;
+
+    /** Velocidad en Zona 2 (Tristeza). Reduccion del 30% */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float WalkSpeedTristeza = 140.0f;
+
+    /** Tiempo de coyote — permite saltar brevemente tras caer de un borde */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float CoyoteTime = 0.12f;
+
+    /** Buffer de salto — acepta input de salto un poco antes de aterrizar */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float JumpBufferTime = 0.08f;
+
+    // ============================================================
+    //  EMOTION SYSTEM — PARAMETROS
+    // ============================================================
+
+    /** Nivel actual de ira de Niko. Rango 0.0 — 1.0 */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emotion",
+        meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float EmotionIra = 0.0f;
+
+    /** Cuanto sube EmotionIra por segundo mientras Niko corre */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emotion")
+    float IraIncreasePerSprintSec = 0.08f;
+
+    /** Cuanto baja EmotionIra por segundo cuando Niko está quieto */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emotion")
+    float IraDecayPerIdleSec = 0.04f;
+
+    /** Umbral donde los efectos visuales de alerta se activan */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emotion")
+    float IraWarningThreshold = 0.75f;
+
+    // ============================================================
+    //  ESTADO DE ITEMS
+    // ============================================================
+
+    UPROPERTY(BlueprintReadOnly, Category = "Items")
+    bool bHasParaguas = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Items")
+    bool bParaguasOpen = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Items")
+    bool bHasMascara = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Items")
+    bool bMascaraEquipped = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Items")
+    bool bHasFrasco = false;
+
+    // ============================================================
+    //  API PUBLICA — llamada por PuzzleManager, ZoneManager, etc.
+    // ============================================================
+
+    UFUNCTION(BlueprintCallable, Category = "Movement")
+    void StartSprint();
+
+    UFUNCTION(BlueprintCallable, Category = "Movement")
+    void StopSprint();
+
+    UFUNCTION(BlueprintCallable, Category = "Interaction")
+    void Interact();
+
+    UFUNCTION(BlueprintCallable, Category = "Items")
+    void OpenCloseParaguas();
+
+    UFUNCTION(BlueprintCallable, Category = "Items")
+    void ToggleMascara();
+
+    /** Devuelve el valor actual de EmotionIra (0.0 — 1.0) */
+    UFUNCTION(BlueprintPure, Category = "Emotion")
+    float GetEmotionIra() const { return EmotionIra; }
+
+    /** Suma Delta a EmotionIra y hace broadcast del delegate */
+    UFUNCTION(BlueprintCallable, Category = "Emotion")
+    void AddEmotionIra(float Delta);
+
+    /** Devuelve la direccion en que mira Niko (vector normalizado) */
+    UFUNCTION(BlueprintPure, Category = "Movement")
+    FVector GetFacingDirection() const;
+
+    /** Aplica velocidad de zona — llamado por ZoneManager al entrar a cada zona */
+    UFUNCTION(BlueprintCallable, Category = "Movement")
+    void SetZoneWalkSpeed(float NewSpeed);
+
+    // ============================================================
+    //  DELEGATES PUBLICOS — otros sistemas se suscriben aquí
+    // ============================================================
+
+    UPROPERTY(BlueprintAssignable, Category = "Emotion")
+    FOnEmotionIraChanged OnEmotionIraChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Items")
+    FOnParaguasStateChanged OnParaguasStateChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Items")
+    FOnMascaraStateChanged OnMascaraStateChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Items")
+    FOnItemUsed OnItemUsed;
+
+    UPROPERTY(BlueprintAssignable, Category = "Gameplay")
+    FOnPlayerEnteredZone OnPlayerEnteredZone;
+
+    UPROPERTY(BlueprintAssignable, Category = "Interaction")
+    FOnInteractionStarted OnInteractionStarted;
+
+protected:
+
+    // ============================================================
+    //  ESTADO INTERNO — no expuesto a Blueprint
+    // ============================================================
+
+    bool bIsSprinting = false;
+    bool bIsInteracting = false;
+
+    float CoyoteTimeCounter = 0.0f;
+    float JumpBufferCounter = 0.0f;
+
+    // ============================================================
+    //  INPUT HANDLERS — enlazados en SetupPlayerInputComponent
+    // ============================================================
+
+    void HandleMove(const FInputActionValue& Value);
+    void HandleLook(const FInputActionValue& Value);
+    void HandleJump();
+    void HandleStopJump();
+    void HandleCrouchToggle();
+    void HandleSprintStart();
+    void HandleSprintStop();
+    void HandleInteract();
+    void HandleParaguas();
+    void HandleMascara();
+
+    // ============================================================
+    //  HELPERS INTERNOS — llamados desde Tick
+    // ============================================================
+
+    /** Actualiza EmotionIra cada frame segun si Niko corre o descansa */
+    void UpdateEmotionIra(float DeltaTime);
+
+    /** Actualiza contadores de CoyoteTime y JumpBuffer */
+    void UpdateJumpTimers(float DeltaTime);
+
+    /** Lanza raycast de interaccion hacia adelante (200 cm) */
+    AActor* GetInteractableInFront() const;
 };
