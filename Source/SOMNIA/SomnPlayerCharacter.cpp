@@ -46,6 +46,7 @@ ASomnPlayerCharacter::ASomnPlayerCharacter()
     GetCharacterMovement()->AirControl = 0.35f;
     GetCharacterMovement()->GravityScale = 1.5f;
     GetCharacterMovement()->bOrientRotationToMovement = true;
+    GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
     bUseControllerRotationYaw = false;
     bUseControllerRotationPitch = false;
